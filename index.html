@@ -465,15 +465,31 @@ main{
   transition:background .1s;
 }
 .wk-day:hover{background:var(--surface-2)}
-.wk-day.today .wk-num{
-  background:var(--accent-dark);color:#fff;border-radius:50%;
-  width:22px;height:22px;display:flex;align-items:center;justify-content:center;
+/* base num — always 22x22 centred box so circles align */
+.wk-num{
+  width:22px;height:22px;
+  display:flex;align-items:center;justify-content:center;
+  font-size:12px;font-weight:500;color:var(--txt-pri);
+  line-height:1;border-radius:50%;
+  font-variant-numeric:tabular-nums;
 }
-.wk-day.sel:not(.today) .wk-num{
-  background:var(--accent-soft);color:var(--accent-dark);border-radius:50%;
-  width:22px;height:22px;display:flex;align-items:center;justify-content:center;
+/* today: semi-transparent circle */
+.wk-today .wk-num{
+  background:rgba(138,135,176,.25);
+  color:var(--txt-pri);
 }
-.wk-num{font-size:12px;font-weight:500;color:var(--txt-pri);line-height:1;padding:2px 0}
+[data-theme="dark"] .wk-today .wk-num{
+  background:rgba(168,166,206,.25);
+  color:var(--txt-pri);
+}
+/* selected (non-today): solid accent circle */
+.wk-sel:not(.wk-today) .wk-num{
+  background:var(--accent-dark);color:#fff;
+}
+/* today AND selected: solid accent circle (overrides today) */
+.wk-day.wk-today.wk-sel .wk-num{
+  background:var(--accent-dark);color:#fff;
+}
 .wk-day.is-sat .wk-num{color:#4A6FA5}
 .wk-day.is-sun .wk-num, .wk-day.is-hol .wk-num{color:#722F37}
 .wk-dots{display:flex;gap:2px;justify-content:center;min-height:5px}
@@ -588,6 +604,18 @@ main{
     <button class="pill on" onclick="filterCal('')">All</button>
   </div>
 
+  <!-- Completed (collapsible, above Uncompleted) -->
+  <div id="completed-wrap" style="display:none;margin-bottom:8px">
+    <div class="comp-hdr" onclick="toggleCompleted()">
+      <span class="comp-lbl">Completed</span>
+      <span class="comp-cnt" id="comp-cnt">0</span>
+      <span class="comp-ico" id="comp-ico">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 9l6 6 6-6"/></svg>
+      </span>
+    </div>
+    <div class="events-list" id="completed-list" style="display:none"></div>
+  </div>
+
   <!-- Uncompleted -->
   <div class="sec-row">
     <span class="ttl">Uncompleted</span>
@@ -599,18 +627,6 @@ main{
       <h3>다가오는 일정이 없어요</h3>
       <p>+ 버튼으로 추가하거나 Google Calendar를 연동해보세요</p>
     </div>
-  </div>
-
-  <!-- Completed -->
-  <div id="completed-wrap" style="display:none;margin-top:20px">
-    <div class="comp-hdr" onclick="toggleCompleted()">
-      <span class="comp-lbl">Completed</span>
-      <span class="comp-cnt" id="comp-cnt">0</span>
-      <span class="comp-ico" id="comp-ico">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 9l6 6 6-6"/></svg>
-      </span>
-    </div>
-    <div class="events-list" id="completed-list" style="display:none"></div>
   </div>
 
   <!-- Overdue -->
@@ -738,6 +754,13 @@ main{
         <div class="s-row-sub">Fetch from Google Calendar now</div>
       </div>
       <button class="s-act" onclick="manualSync()">Sync</button>
+    </div>
+    <div class="s-row">
+      <div class="s-row-l">
+        <div class="s-row-ttl">Full resync</div>
+        <div class="s-row-sub">Remove imported events and refetch all from Google Calendar</div>
+      </div>
+      <button class="s-act" onclick="fullResync()">Resync</button>
     </div>
     <div class="s-row">
       <div class="s-row-l">
@@ -1270,40 +1293,69 @@ async function fetchGCal(token){
   try{
     const past=new Date(Date.now()-90*24*60*60*1000).toISOString();
     const later=new Date(Date.now()+180*24*60*60*1000).toISOString();
+
+    // 1) get calendar list
     const clRes=await fetch('https://www.googleapis.com/calendar/v3/users/me/calendarList',
       {headers:{Authorization:'Bearer '+token}});
+    if(clRes.status===401){ gcalErr(); return; }
     let calNames={};
-    if(clRes.ok){ const clData=await clRes.json(); (clData.items||[]).forEach(c=>{ calNames[c.id]=c.summary; }); }
+    if(clRes.ok){
+      const clData=await clRes.json();
+      (clData.items||[]).forEach(c=>{ calNames[c.id]=c.summary; });
+    }
     const ids=Object.keys(calNames).length>0?Object.keys(calNames):['primary'];
-    let added=0;
+
+    // 2) fetch events from each calendar with pagination
+    let added=0, updated=0, totalFetched=0;
     for(const calId of ids){
       const calName=calNames[calId]||'Other';
-      const res=await fetch(
-        'https://www.googleapis.com/calendar/v3/calendars/'+encodeURIComponent(calId)+'/events?timeMin='+past+'&timeMax='+later+'&singleEvents=true&orderBy=startTime&maxResults=200',
-        {headers:{Authorization:'Bearer '+token}});
-      if(!res.ok) continue;
-      const data=await res.json();
-      (data.items||[]).forEach(item=>{
-        if(!item.summary) return;
-        const ds=item.start&&item.start.date?item.start.date
-               :item.start&&item.start.dateTime?item.start.dateTime.split('T')[0]:null;
-        if(!ds) return;
-        if(!events.find(e=>e.gcalId===item.id)){
-          events.push({
-            id:Date.now().toString()+Math.random().toString(36).slice(2),
-            gcalId:item.id,title:item.summary,date:ds,
-            time:item.start&&item.start.dateTime?item.start.dateTime.split('T')[1].slice(0,5):'',
-            calName,memo:item.description||'',done:false,source:'gcal'
-          });
-          added++;
-        }
-      });
+      let pageToken=null, pages=0;
+      do {
+        pages++;
+        const url='https://www.googleapis.com/calendar/v3/calendars/'+encodeURIComponent(calId)+
+          '/events?timeMin='+past+'&timeMax='+later+
+          '&singleEvents=true&orderBy=startTime&maxResults=250'+
+          (pageToken?'&pageToken='+encodeURIComponent(pageToken):'');
+        const res=await fetch(url,{headers:{Authorization:'Bearer '+token}});
+        if(res.status===401){ gcalErr(); return; }
+        if(!res.ok){ console.warn('Skipping calendar',calName,res.status); break; }
+        const data=await res.json();
+        (data.items||[]).forEach(item=>{
+          if(!item.summary) return;
+          const ds=item.start&&item.start.date?item.start.date
+                 :item.start&&item.start.dateTime?item.start.dateTime.split('T')[0]:null;
+          if(!ds) return;
+          totalFetched++;
+          const existing=events.find(e=>e.gcalId===item.id);
+          if(!existing){
+            events.push({
+              id:Date.now().toString()+Math.random().toString(36).slice(2)+totalFetched,
+              gcalId:item.id,title:item.summary,date:ds,
+              time:item.start&&item.start.dateTime?item.start.dateTime.split('T')[1].slice(0,5):'',
+              calName,memo:item.description||'',done:false,source:'gcal'
+            });
+            added++;
+          } else {
+            // update mutable fields but keep done state
+            existing.title=item.summary;
+            existing.date=ds;
+            existing.calName=calName;
+            existing.time=item.start&&item.start.dateTime?item.start.dateTime.split('T')[1].slice(0,5):existing.time;
+            updated++;
+          }
+        });
+        pageToken=data.nextPageToken||null;
+      } while(pageToken && pages<10);
     }
     saveEvents(); rebuildPills(); updateStats(); renderEvents(); renderCalendar(); renderWeekCal();
-    showToast('Imported '+added+' events from Google Calendar');
+    showToast('Synced — '+added+' new, '+updated+' updated');
     if(added>0) scheduleAllNotifs();
     localStorage.setItem('hyun_last_sync',new Date().toISOString());
-  } catch(err){ gcalErr(); }
+  } catch(err){
+    console.error('Sync error:',err);
+    // Do not nuke the token on transient errors (network, etc)
+    showToast('Sync failed — will retry');
+  }
 }
 function gcalErr(){
   localStorage.removeItem('hyun_gcal_token');
@@ -1321,6 +1373,17 @@ function manualSync(){
   const t=localStorage.getItem('hyun_gcal_token');
   if(!t){ showToast('Please connect Google Calendar first'); return; }
   showToast('Syncing...'); fetchGCal(t);
+}
+function fullResync(){
+  const t=localStorage.getItem('hyun_gcal_token');
+  if(!t){ showToast('Please connect Google Calendar first'); return; }
+  if(!confirm('Remove all imported Google Calendar events and refetch from scratch? (Your manually-added events will be kept.)')) return;
+  // Drop GCal-sourced events
+  events = events.filter(e => e.source !== 'gcal');
+  saveEvents();
+  rebuildPills(); updateStats(); renderEvents(); renderCalendar(); renderWeekCal();
+  showToast('Full resync starting...');
+  fetchGCal(t);
 }
 setInterval(()=>{
   if(!settings.autoSync||!gcalConn) return;
@@ -1393,7 +1456,11 @@ function isHoliday(ds){
 
 /* ── WEEKLY MINI-CAL ────────────────────────────── */
 let weekOffset = 0;
-let weekSel    = null;
+function _todayStr(){
+  const t=new Date();
+  return t.getFullYear()+'-'+String(t.getMonth()+1).padStart(2,'0')+'-'+String(t.getDate()).padStart(2,'0');
+}
+let weekSel    = _todayStr();
 
 function getWeekStart(offset) {
   const now = new Date();
@@ -1456,36 +1523,35 @@ function renderWeekCal() {
 }
 
 function selectWeekDay(ds) {
-  weekSel = weekSel === ds ? null : ds;
+  weekSel = ds;
   renderWeekCal();
 }
 
 function changeWeek(dir) {
   weekOffset += dir;
-  weekSel = null;
+  // when navigating to a new week, default-select today if current week, else first day
+  const ws = getWeekStart(weekOffset);
+  const we = new Date(ws); we.setDate(ws.getDate() + 6);
+  const today = new Date(); today.setHours(0,0,0,0);
+  if (today >= ws && today <= we) {
+    weekSel = _todayStr();
+  } else {
+    weekSel = ws.getFullYear()+'-'+String(ws.getMonth()+1).padStart(2,'0')+'-'+String(ws.getDate()).padStart(2,'0');
+  }
   renderWeekCal();
 }
 
 function renderWeekEvents() {
   const el = document.getElementById('week-events');
   if (!el) return;
-  const mo = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  const wd = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-  let filtered;
-  if (weekSel) {
-    filtered = events.filter(e => e.date === weekSel && !isHolidayCalendar(e.calName));
-  } else {
-    const ws = getWeekStart(weekOffset);
-    const we = new Date(ws); we.setDate(ws.getDate() + 7);
-    filtered = events.filter(e => {
-      if (isHolidayCalendar(e.calName)) return false;
-      const d = new Date(e.date); d.setHours(0,0,0,0);
-      return d >= ws && d < we;
-    });
-  }
-  filtered.sort((a,b) => new Date(a.date) - new Date(b.date));
+  // weekSel is always set (default = today on init / current-week change)
+  const filtered = events
+    .filter(e => e.date === weekSel && !isHolidayCalendar(e.calName))
+    .sort((a,b) => (a.time||'').localeCompare(b.time||''));
+
   if (!filtered.length) {
-    el.innerHTML = '<div style="text-align:center;padding:12px 0;font-size:12px;color:var(--txt-ter)">No events this week</div>';
+    const msg = weekSel === _todayStr() ? 'No events today' : 'No events on this day';
+    el.innerHTML = '<div style="text-align:center;padding:12px 0;font-size:12px;color:var(--txt-ter)">'+msg+'</div>';
     return;
   }
   el.innerHTML = renderGrouped(filtered);
