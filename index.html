@@ -21,11 +21,11 @@
   --txt-pri:    #1A1A24;
   --txt-sec:    #52525E;
   --txt-ter:    #9898A8;
-  /* accent: centre swatch from palette image — muted periwinkle */
-  --accent:      #C0BEDD;
-  --accent-dark: #8A87B0;   /* for text-on-light readability */
-  --accent-soft: #EEECF8;
-  --accent-mid:  #D4D2EA;
+  /* accent: sky blue — soft, professional, readable on light bg */
+  --accent:      #7FBCE5;
+  --accent-dark: #4A93C8;   /* for text-on-light readability */
+  --accent-soft: #E6F1FA;
+  --accent-mid:  #B5D7EE;
   --green:      #3C7A5E;
   --green-soft: #E4F0EB;
   --nav-h: 60px;
@@ -45,11 +45,11 @@
   --txt-pri:    #EDEDF5;
   --txt-sec:    #A8A8C0;
   --txt-ter:    #64647C;
-  /* accent stays periwinkle but brighter for dark bg */
-  --accent:      #A8A6CE;
-  --accent-dark: #A8A6CE;
-  --accent-soft: #28283E;
-  --accent-mid:  #68669A;
+  /* accent: brighter sky blue for dark bg readability */
+  --accent:      #6BB6E8;
+  --accent-dark: #8FCAEF;
+  --accent-soft: #1A2A38;
+  --accent-mid:  #4A7FA8;
   --green:      #5AAA88;
   --green-soft: #162820;
   --sh-sm:0 1px 4px rgba(0,0,0,.35);
@@ -123,7 +123,7 @@ main{
   bottom:calc(var(--nav-h) + var(--safe-b) + 16px);right:18px;z-index:190;
   width:48px;height:48px;border-radius:50%;
   background:var(--accent-dark);color:#fff;
-  box-shadow:0 4px 16px rgba(138,135,176,.35);
+  box-shadow:0 4px 16px rgba(74,147,200,.35);
   display:flex;align-items:center;justify-content:center;
   transition:transform .12s,box-shadow .12s;
 }
@@ -261,7 +261,7 @@ main{
 .chk-btn svg{width:11px;height:11px;stroke-width:3}
 
 /* ── COMPLETED HEADER ─────────────────────────── */
-.comp-hdr{display:flex;align-items:center;gap:8px;padding:10px 2px 6px;cursor:pointer;user-select:none}
+.comp-hdr{display:flex;align-items:center;gap:8px;padding:10px 0 6px;cursor:pointer;user-select:none}
 .comp-lbl{font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--txt-ter)}
 .uncomp-lbl{color:var(--txt-sec)}
 .comp-cnt{font-size:10px;font-weight:600;color:var(--txt-ter);background:var(--surface-2);padding:1px 7px;border-radius:20px}
@@ -476,11 +476,11 @@ main{
 }
 /* today: semi-transparent circle */
 .wk-today .wk-num{
-  background:rgba(138,135,176,.25);
+  background:rgba(127,188,229,.30);
   color:var(--txt-pri);
 }
 [data-theme="dark"] .wk-today .wk-num{
-  background:rgba(168,166,206,.25);
+  background:rgba(107,182,232,.30);
   color:var(--txt-pri);
 }
 /* selected (non-today): solid accent circle */
@@ -605,10 +605,10 @@ main{
     <button class="pill on" onclick="filterCal('')">All</button>
   </div>
 
-  <!-- Completed (collapsible, above Uncompleted) -->
+  <!-- Complete (collapsible, above Incomplete) -->
   <div id="completed-wrap" style="display:none;margin-bottom:8px">
     <div class="comp-hdr" onclick="toggleCompleted()">
-      <span class="comp-lbl">Completed</span>
+      <span class="comp-lbl">Complete</span>
       <span class="comp-cnt" id="comp-cnt">0</span>
       <span class="comp-ico" id="comp-ico">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 9l6 6 6-6"/></svg>
@@ -617,9 +617,9 @@ main{
     <div class="events-list" id="completed-list" style="display:none"></div>
   </div>
 
-  <!-- Uncompleted -->
+  <!-- Incomplete -->
   <div class="sec-row" style="margin-top:8px">
-    <span class="comp-lbl uncomp-lbl">Uncompleted</span>
+    <span class="comp-lbl uncomp-lbl">Incomplete</span>
     <button class="act" onclick="showView('calendar')">Calendar</button>
   </div>
   <div class="events-list" id="events-list">
