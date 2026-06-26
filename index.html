@@ -1459,12 +1459,25 @@ function handleOAuthRedirect(){
   const params=new URLSearchParams(hash.substring(1));
   const token=params.get('access_token');
   if(!token) return;
+
+  // Verify all required scopes were granted
+  const grantedScope = params.get('scope') || '';
+  const hasCalendar  = grantedScope.includes('https://www.googleapis.com/auth/calendar');
+  const hasEvents    = grantedScope.includes('https://www.googleapis.com/auth/calendar.events');
+
+  if (!hasCalendar) {
+    history.replaceState(null,'',location.pathname);
+    showToast('⚠️ "캘린더 보기" 권한이 빠졌어요. 다시 연동하면서 모든 권한을 체크해주세요');
+    setTimeout(()=>alert('Google이 이 앱에 제한된 권한만 허용했어요.\n\n다시 연동할 때 권한 화면에서 "모든 Google 캘린더 보기" 체크박스를 반드시 체크해주세요.\n\n현재 받은 권한: '+grantedScope), 100);
+    return;
+  }
+
   localStorage.setItem('hyun_gcal_token',token);
   localStorage.setItem('hyun_gcal_conn','true');
   localStorage.setItem('hyun_gcal_scope', REQUIRED_SCOPE);
   gcalConn=true;
   history.replaceState(null,'',location.pathname);
-  showToast('Google Calendar connected');
+  showToast('Google Calendar connected · ' + (hasEvents?'read+write':'read only'));
   updateGcalUI(); fetchGCal(token);
 }
 async function fetchGCal(token){
@@ -1473,13 +1486,13 @@ async function fetchGCal(token){
     const later=new Date(Date.now()+180*24*60*60*1000).toISOString();
 
     // 1) get calendar list
-    const clRes=await fetch('https://www.googleapis.com/calendar/v3/users/me/calendarList',
+    const clRes=await fetch('https://www.googleapis.com/calendar/v3/users/me/calendarList?minAccessRole=reader&maxResults=250',
       {headers:{Authorization:'Bearer '+token}});
     if(clRes.status===401){ gcalErr(); return; }
     if(clRes.status===403){
       const errText = await clRes.text();
       console.error('calendarList 403:',errText);
-      showToast('Permission denied — reconnect with full access');
+      showToast('권한 부족 — Reconnect 시 모든 권한을 허용해주세요');
       return;
     }
     let calNames={};
@@ -1489,8 +1502,18 @@ async function fetchGCal(token){
       console.log('Calendar list found:', Object.keys(calNames).length, 'calendars:', Object.values(calNames));
     } else {
       console.error('calendarList failed:', clRes.status);
+      showToast('Cannot list calendars (HTTP '+clRes.status+'). Please reconnect.');
+      return;
     }
-    const ids=Object.keys(calNames).length>0?Object.keys(calNames):['primary'];
+
+    if (Object.keys(calNames).length === 0) {
+      // No calendars listed → permission for "See all calendars" was not granted
+      showToast('캘린더 목록이 비어있어요. Reconnect 시 "모든 캘린더 보기"를 체크해주세요');
+      console.error('calendarList returned 0 calendars — user must grant full access');
+      return;
+    }
+
+    const ids = Object.keys(calNames);
 
     // Persist calendar list (name → id) for write operations later
     const calMap = {}; // raw summary → id
