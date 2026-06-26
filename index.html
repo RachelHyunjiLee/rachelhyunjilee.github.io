@@ -97,7 +97,7 @@ a{color:var(--accent-dark);text-decoration:none}
 /* ── MAIN ─────────────────────────────────────── */
 main{
   flex:1;
-  padding:24px 16px calc(var(--nav-h) + var(--safe-b) + 20px);
+  padding:24px 16px calc(var(--nav-h) + var(--safe-b) + 100px);
   max-width:640px;margin:0 auto;width:100%;
 }
 
@@ -419,7 +419,7 @@ main{
 
 /* ── RESPONSIVE ───────────────────────────────── */
 @media(min-width:768px){
-  main{padding:28px 28px calc(var(--nav-h) + 24px)}
+  main{padding:28px 28px calc(var(--nav-h) + 100px)}
   .topbar{padding:0 28px}
 }
 @media(min-width:1024px){
@@ -574,7 +574,7 @@ main{
 
   <!-- Stats -->
   <div class="stat-strip">
-    <div class="stat-card hi">
+    <div class="stat-card">
       <div class="s-lbl">This month</div>
       <div class="s-val" id="stat-total">0</div>
       <div class="s-sub">events</div>
@@ -584,7 +584,7 @@ main{
       <div class="s-val" id="stat-done">0</div>
       <div class="s-sub">completed</div>
     </div>
-    <div class="stat-card">
+    <div class="stat-card hi">
       <div class="s-lbl">Today</div>
       <div class="s-val" id="stat-today">0</div>
       <div class="s-sub">D-DAY</div>
@@ -848,8 +848,8 @@ main{
       </div>
     </div>
     <div class="form-field">
-      <label class="form-lbl">Calendar name</label>
-      <input class="form-inp" id="f-cal" type="text" placeholder="e.g. Personal, School, Work">
+      <label class="form-lbl">Calendar</label>
+      <select class="form-sel" id="f-cal"></select>
     </div>
     <div class="form-field">
       <label class="form-lbl">Note (optional)</label>
@@ -1112,11 +1112,32 @@ function evHTML(e){
 }
 
 /* TOGGLE DONE */
-function toggleDone(id){
+async function toggleDone(id){
   const e=events.find(x=>x.id===id); if(!e) return;
   e.done=!e.done;
-  saveEvents(); updateStats(); renderEvents(); renderCalendar();
+  saveEvents(); updateStats(); renderEvents(); renderCalendar(); renderWeekCal();
   showToast(e.done?'Marked as complete':'Marked as incomplete');
+
+  // Persist done state to GCal so it syncs across devices
+  const token = localStorage.getItem('hyun_gcal_token');
+  if (token && gcalConn && e.gcalId && e.gcalCalId) {
+    try {
+      await fetch(
+        'https://www.googleapis.com/calendar/v3/calendars/' + encodeURIComponent(e.gcalCalId) +
+        '/events/' + encodeURIComponent(e.gcalId),
+        {
+          method: 'PATCH',
+          headers: {
+            'Authorization': 'Bearer ' + token,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            extendedProperties: { private: { hyun_done: e.done ? '1' : '0' } }
+          })
+        }
+      );
+    } catch(err) { console.warn('Done sync failed:', err); }
+  }
 }
 
 /* COMPLETED COLLAPSE */
@@ -1127,25 +1148,123 @@ function toggleCompleted(){
 }
 
 /* ADD EVENT */
-function openAddModal(){ document.getElementById('add-modal').classList.add('open'); }
+function openAddModal(){
+  // Populate calendar dropdown from existing event calendars + display names
+  const sel = document.getElementById('f-cal');
+  const rawNames = [...new Set(events.filter(e=>!isHolidayCalendar(e.calName)).map(e=>e.calName||'').filter(Boolean))];
+  // Build display→raw map (so we save the raw name for proper GCal sync)
+  const seen = new Set();
+  const opts = [];
+  rawNames.forEach(raw=>{
+    const disp = displayCalName(raw);
+    if (!seen.has(disp)) { seen.add(disp); opts.push({raw, disp}); }
+  });
+  // Sort by PILL_ORDER
+  opts.sort((a,b)=>pillSort(a.disp,b.disp));
+  // Build options HTML
+  let html = '';
+  opts.forEach(o=>{
+    html += '<option value="'+o.raw.replace(/"/g,'&quot;')+'">'+o.disp+'</option>';
+  });
+  html += '<option value="__new__">+ New calendar...</option>';
+  sel.innerHTML = html;
+  document.getElementById('add-modal').classList.add('open');
+}
 function closeModal(id){ document.getElementById(id).classList.remove('open'); }
 function bgClose(ev,id){ if(ev.target===ev.currentTarget) closeModal(id); }
 
-function addEvent(){
+async function addEvent(){
   const title=document.getElementById('f-title').value.trim();
   const date=document.getElementById('f-date').value;
   const time=document.getElementById('f-time').value;
-  const cal=document.getElementById('f-cal').value.trim()||'Other';
+  let cal=document.getElementById('f-cal').value;
   const memo=document.getElementById('f-memo').value.trim();
   if(!title||!date){ showToast('Please enter a title and date'); return; }
+
+  // Handle "+ New calendar..." option
+  if (cal === '__new__') {
+    const newName = prompt('Enter a new calendar name:');
+    if (!newName || !newName.trim()) return;
+    cal = newName.trim();
+  }
+  if (!cal) cal = 'Other';
+
   const e={
     id:Date.now().toString()+Math.random().toString(36).slice(2),
     title,date,time,calName:cal,memo,done:false,source:'manual'
   };
   events.push(e); saveEvents(); scheduleEvNotifs(e);
-  rebuildPills(); updateStats(); renderEvents(); renderCalendar();
-  closeModal('add-modal'); showToast('Event added');
-  ['f-title','f-time','f-cal','f-memo'].forEach(id=>document.getElementById(id).value='');
+  rebuildPills(); updateStats(); renderEvents(); renderCalendar(); renderWeekCal();
+  closeModal('add-modal');
+  ['f-title','f-time','f-memo'].forEach(id=>document.getElementById(id).value='');
+
+  // Try to push to Google Calendar if connected
+  const token = localStorage.getItem('hyun_gcal_token');
+  if (token && gcalConn) {
+    showToast('Adding to Google Calendar...');
+    const ok = await pushToGCal(e, token);
+    if (ok) showToast('Event added & synced to Google');
+    else showToast('Event added (local only — Google sync failed)');
+  } else {
+    showToast('Event added');
+  }
+}
+
+async function pushToGCal(ev, token) {
+  try {
+    // Find the calendar ID by name
+    const calMap = JSON.parse(localStorage.getItem('hyun_cal_map') || '{}');
+    let calId = calMap[ev.calName] || 'primary';
+
+    // Build event payload
+    const body = {
+      summary: ev.title,
+      description: ev.memo || ''
+    };
+    if (ev.time) {
+      // Time event — use 1hr default duration
+      const [hh, mm] = ev.time.split(':').map(Number);
+      const start = new Date(ev.date + 'T' + ev.time + ':00');
+      const end = new Date(start.getTime() + 60*60*1000);
+      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+      body.start = { dateTime: start.toISOString(), timeZone: tz };
+      body.end   = { dateTime: end.toISOString(),   timeZone: tz };
+    } else {
+      // All-day event
+      const start = ev.date;
+      const endD = new Date(ev.date);
+      endD.setDate(endD.getDate() + 1);
+      const end = endD.getFullYear() + '-' + String(endD.getMonth()+1).padStart(2,'0') + '-' + String(endD.getDate()).padStart(2,'0');
+      body.start = { date: start };
+      body.end   = { date: end };
+    }
+
+    const res = await fetch(
+      'https://www.googleapis.com/calendar/v3/calendars/' + encodeURIComponent(calId) + '/events',
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': 'Bearer ' + token,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(body)
+      }
+    );
+    if (!res.ok) {
+      console.warn('GCal push failed:', res.status, await res.text());
+      return false;
+    }
+    const data = await res.json();
+    // Save gcal id on local event so future syncs match
+    ev.gcalId = data.id;
+    ev.gcalCalId = calId;
+    ev.source = 'gcal';
+    saveEvents();
+    return true;
+  } catch(err) {
+    console.error('pushToGCal error:', err);
+    return false;
+  }
 }
 
 /* CALENDAR */
@@ -1295,7 +1414,7 @@ function saveClientId(){
   doOAuth(id);
 }
 function doOAuth(cid){
-  const scope=encodeURIComponent('https://www.googleapis.com/auth/calendar.readonly');
+  const scope=encodeURIComponent('https://www.googleapis.com/auth/calendar.events');
   const redirect=encodeURIComponent(location.href.split('#')[0].split('?')[0].replace(/\/$/, ''));
   window.location.href='https://accounts.google.com/o/oauth2/v2/auth?client_id='+cid+'&redirect_uri='+redirect+'&response_type=token&scope='+scope+'&prompt=consent';
 }
@@ -1328,6 +1447,11 @@ async function fetchGCal(token){
     }
     const ids=Object.keys(calNames).length>0?Object.keys(calNames):['primary'];
 
+    // Persist calendar list (name → id) for write operations later
+    const calMap = {}; // raw summary → id
+    Object.entries(calNames).forEach(([id,name])=>{ calMap[name]=id; });
+    localStorage.setItem('hyun_cal_map', JSON.stringify(calMap));
+
     // 2) fetch events from each calendar with pagination
     let added=0, updated=0, totalFetched=0;
     for(const calId of ids){
@@ -1350,20 +1474,23 @@ async function fetchGCal(token){
           if(!ds) return;
           totalFetched++;
           const existing=events.find(e=>e.gcalId===item.id);
+          const remoteDone = !!(item.extendedProperties && item.extendedProperties.private && item.extendedProperties.private.hyun_done === '1');
           if(!existing){
             events.push({
               id:Date.now().toString()+Math.random().toString(36).slice(2)+totalFetched,
-              gcalId:item.id,title:item.summary,date:ds,
+              gcalId:item.id,gcalCalId:calId,title:item.summary,date:ds,
               time:item.start&&item.start.dateTime?item.start.dateTime.split('T')[1].slice(0,5):'',
-              calName,memo:item.description||'',done:false,source:'gcal'
+              calName,memo:item.description||'',done:remoteDone,source:'gcal'
             });
             added++;
           } else {
-            // update mutable fields but keep done state
+            // update mutable fields; trust remote done state (so cross-device sync works)
             existing.title=item.summary;
             existing.date=ds;
             existing.calName=calName;
+            existing.gcalCalId=calId;
             existing.time=item.start&&item.start.dateTime?item.start.dateTime.split('T')[1].slice(0,5):existing.time;
+            existing.done=remoteDone;
             updated++;
           }
         });
