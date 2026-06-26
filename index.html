@@ -263,6 +263,7 @@ main{
 /* ── COMPLETED HEADER ─────────────────────────── */
 .comp-hdr{display:flex;align-items:center;gap:8px;padding:10px 2px 6px;cursor:pointer;user-select:none}
 .comp-lbl{font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--txt-ter)}
+.uncomp-lbl{color:var(--txt-sec)}
 .comp-cnt{font-size:10px;font-weight:600;color:var(--txt-ter);background:var(--surface-2);padding:1px 7px;border-radius:20px}
 .comp-ico{margin-left:auto;color:var(--txt-ter);transition:transform .2s}
 .comp-ico.open{transform:rotate(180deg)}
@@ -617,8 +618,8 @@ main{
   </div>
 
   <!-- Uncompleted -->
-  <div class="sec-row">
-    <span class="ttl">Uncompleted</span>
+  <div class="sec-row" style="margin-top:8px">
+    <span class="comp-lbl uncomp-lbl">Uncompleted</span>
     <button class="act" onclick="showView('calendar')">Calendar</button>
   </div>
   <div class="events-list" id="events-list">
@@ -632,7 +633,7 @@ main{
   <!-- Overdue -->
   <div id="overdue-sec" style="display:none;margin-top:20px">
     <div class="sec-row">
-      <span class="ttl" style="color:var(--accent-dark)">Overdue</span>
+      <span class="comp-lbl" style="color:var(--accent-dark)">Overdue</span>
       <span id="overdue-cnt" style="font-size:12px;color:var(--txt-ter)"></span>
     </div>
     <div class="events-list" id="overdue-list"></div>
