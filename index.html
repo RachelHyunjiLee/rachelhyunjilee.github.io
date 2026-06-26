@@ -79,7 +79,7 @@ a{color:var(--accent-dark);text-decoration:none}
   background:var(--surface);border-bottom:1px solid var(--border);
   display:flex;align-items:center;justify-content:space-between;padding:0 20px;
 }
-.brand{font-size:16px;font-weight:700;letter-spacing:-0.06em;color:var(--txt-pri)}
+.brand{font-size:17px;font-weight:700;font-style:italic;letter-spacing:-0.04em;color:var(--txt-pri)}
 .topbar-r{display:flex;gap:4px;align-items:center}
 .icon-btn{
   width:36px;height:36px;border-radius:50%;
@@ -941,8 +941,11 @@ function updateHeader() {
   const now = new Date(), h = now.getHours();
   const mo = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   const wd = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const yyyy=now.getFullYear();
+  const mm=String(now.getMonth()+1).padStart(2,'0');
+  const dd=String(now.getDate()).padStart(2,'0');
   document.getElementById('page-date').textContent =
-    mo[now.getMonth()]+' '+now.getDate()+' ('+wd[now.getDay()]+'), '+now.getFullYear();
+    yyyy+'-'+mm+'-'+dd+' ('+wd[now.getDay()]+')';
   document.getElementById('page-greeting').textContent =
     h < 5  ? 'Good night'
   : h < 12 ? 'Good morning'
@@ -1265,7 +1268,7 @@ function handleOAuthRedirect(){
 }
 async function fetchGCal(token){
   try{
-    const now=new Date().toISOString();
+    const past=new Date(Date.now()-90*24*60*60*1000).toISOString();
     const later=new Date(Date.now()+180*24*60*60*1000).toISOString();
     const clRes=await fetch('https://www.googleapis.com/calendar/v3/users/me/calendarList',
       {headers:{Authorization:'Bearer '+token}});
@@ -1276,7 +1279,7 @@ async function fetchGCal(token){
     for(const calId of ids){
       const calName=calNames[calId]||'Other';
       const res=await fetch(
-        'https://www.googleapis.com/calendar/v3/calendars/'+encodeURIComponent(calId)+'/events?timeMin='+now+'&timeMax='+later+'&singleEvents=true&orderBy=startTime&maxResults=200',
+        'https://www.googleapis.com/calendar/v3/calendars/'+encodeURIComponent(calId)+'/events?timeMin='+past+'&timeMax='+later+'&singleEvents=true&orderBy=startTime&maxResults=200',
         {headers:{Authorization:'Bearer '+token}});
       if(!res.ok) continue;
       const data=await res.json();
@@ -1322,11 +1325,30 @@ function manualSync(){
 setInterval(()=>{
   if(!settings.autoSync||!gcalConn) return;
   const last=localStorage.getItem('hyun_last_sync');
-  if(!last||Date.now()-new Date(last).getTime()>3600000){
+  if(!last||Date.now()-new Date(last).getTime()>120000){
     const t=localStorage.getItem('hyun_gcal_token');
     if(t) fetchGCal(t);
   }
-},300000);
+},60000);
+
+// Sync when tab becomes visible or window gains focus
+document.addEventListener('visibilitychange',()=>{
+  if(document.hidden) return;
+  if(!settings.autoSync||!gcalConn) return;
+  const last=localStorage.getItem('hyun_last_sync');
+  if(!last||Date.now()-new Date(last).getTime()>30000){
+    const t=localStorage.getItem('hyun_gcal_token');
+    if(t) fetchGCal(t);
+  }
+});
+window.addEventListener('focus',()=>{
+  if(!settings.autoSync||!gcalConn) return;
+  const last=localStorage.getItem('hyun_last_sync');
+  if(!last||Date.now()-new Date(last).getTime()>30000){
+    const t=localStorage.getItem('hyun_gcal_token');
+    if(t) fetchGCal(t);
+  }
+});
 
 /* PWA */
 async function installPWA(){
