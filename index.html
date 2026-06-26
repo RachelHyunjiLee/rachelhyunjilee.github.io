@@ -493,6 +493,14 @@ main{
 .cal-wday.sat-hdr{color:#4A6FA5}
 .cal-wday.sun-hdr{color:#722F37}
 .cal-day.today{background:var(--accent-dark);color:#fff !important}
+
+.wk-sat .wk-num { color: #4A6FA5 }
+.wk-sun .wk-num { color: #722F37 }
+.cal-day.cal-sat { color: #4A6FA5 }
+.cal-day.cal-sun { color: #722F37 }
+.cal-day.today   { color: #fff !important }
+.cal-wday.cal-sat-hdr { color: #4A6FA5 }
+.cal-wday.cal-sun-hdr { color: #722F37 }
 </style>
 </head>
 <body>
@@ -530,19 +538,21 @@ main{
   <div class="page-title" id="page-date"></div>
   <div class="page-sub"   id="page-greeting"></div>
 
-  <!-- GCal banner -->
-  <div class="gcal-banner" id="gcal-banner"
-       role="button" tabindex="0"
-       onclick="connectGoogleCalendar()"
-       onkeydown="if(event.key==='Enter')connectGoogleCalendar()">
-    <div class="gcal-ico">&#128197;</div>
-    <div class="gcal-text">
-      <h3>Google Calendar</h3>
-      <p>캘린더별 일정을 자동으로 가져와요</p>
+  <!-- Weekly mini-calendar -->
+  <div class="week-cal">
+    <div class="week-cal-nav">
+      <div class="week-cal-ttl" id="week-ttl"></div>
+      <div style="display:flex;gap:4px">
+        <button class="week-cal-btn" onclick="changeWeek(-1)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M15 18l-6-6 6-6"/></svg>
+        </button>
+        <button class="week-cal-btn" onclick="changeWeek(1)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M9 18l6-6-6-6"/></svg>
+        </button>
+      </div>
     </div>
-    <div class="gcal-arr">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M9 18l6-6-6-6"/></svg>
-    </div>
+    <div class="week-grid" id="week-grid"></div>
+    <div id="week-events" class="events-list"></div>
   </div>
 
   <!-- Stats -->
@@ -903,6 +913,7 @@ window.addEventListener('load', () => {
   updateStats();
   renderEvents();
   renderCalendar();
+  renderWeekCal();
   renderNotifs();
   loadSettings();
   updateGcalUI();
@@ -1094,7 +1105,7 @@ function renderCalendar(){
   document.getElementById('cal-ttl').textContent=mo[calM]+' '+calY;
   const grid=document.getElementById('cal-grid');
   const wds=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-  let html=wds.map(d=>'<div class="cal-wday">'+d+'</div>').join('');
+  let html=wds.map((d,i)=>'<div class="cal-wday'+(i===0?' cal-sun-hdr':i===6?' cal-sat-hdr':'')+'">'+d+'</div>').join('');
   const today=new Date(), first=new Date(calY,calM,1), last=new Date(calY,calM+1,0), sd=first.getDay();
   const evDates=new Set(events.filter(e=>!e.done).map(e=>e.date));
   const pl=new Date(calY,calM,0).getDate();
@@ -1103,7 +1114,10 @@ function renderCalendar(){
     const ds=calY+'-'+String(calM+1).padStart(2,'0')+'-'+String(d).padStart(2,'0');
     const isT=today.getDate()===d&&today.getMonth()===calM&&today.getFullYear()===calY;
     const hasE=evDates.has(ds), isSel=calSel===ds;
-    html+='<div class="cal-day '+(isT?'today':'')+' '+(hasE?'has-ev':'')+' '+(isSel&&!isT?'sel':'')+'" onclick="selectDay(\''+ds+'\')">'+d+'</div>';
+    const dow2=new Date(calY,calM,d).getDay();
+    const isSat2=dow2===6, isSun2=dow2===0, isHol2=isHoliday(ds);
+    const dayCls=['cal-day',isT?'today':'',hasE?'has-ev':'',isSel&&!isT?'sel':'',isSat2?'cal-sat':'',( isSun2||isHol2)?'cal-sun':''].filter(Boolean).join(' ');
+    html+='<div class="'+dayCls+'" onclick="selectDay(\''+ds+'\'">'+d+'</div>';
   }
   const rem=7-((sd+last.getDate())%7);
   if(rem<7) for(let i=1;i<=rem;i++) html+='<div class="cal-day other">'+i+'</div>';
@@ -1424,6 +1438,123 @@ function renderWeekEvents(){
   el.innerHTML=renderGrouped(filtered);
 }
 
+
+
+/* ── HOLIDAY / CALENDAR HELPERS ────────────────── */
+function isHolidayCalendar(name){
+  if(!name) return false;
+  const n = name.toLowerCase();
+  return n.includes('holiday') || n.includes('휴일') || n.includes('공휴');
+}
+function isHoliday(ds){
+  const mmdd = ds.slice(5);
+  const staticHols = new Set(['01-01','03-01','05-05','06-06','08-15','10-03','10-09','12-25']);
+  const isHolEv = events.some(e => e.date === ds && isHolidayCalendar(e.calName));
+  return staticHols.has(mmdd) || isHolEv;
+}
+
+/* ── WEEKLY MINI-CAL ────────────────────────────── */
+let weekOffset = 0;
+let weekSel    = null;
+
+function getWeekStart(offset) {
+  const now = new Date();
+  const day = now.getDay(); // 0=Sun
+  const start = new Date(now);
+  start.setDate(now.getDate() - day + offset * 7);
+  start.setHours(0,0,0,0);
+  return start;
+}
+
+function renderWeekCal() {
+  const mo = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const wd = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const ws = getWeekStart(weekOffset);
+  const we = new Date(ws); we.setDate(ws.getDate() + 6);
+  const ttlStr = mo[ws.getMonth()] + ' ' + ws.getDate() + ' – ' +
+    (ws.getMonth() !== we.getMonth() ? mo[we.getMonth()] + ' ' : '') +
+    we.getDate() + ', ' + we.getFullYear();
+
+  const ttlEl = document.getElementById('week-ttl');
+  if (ttlEl) ttlEl.textContent = ttlStr;
+
+  const grid = document.getElementById('week-grid');
+  if (!grid) return;
+
+  const today = new Date(); today.setHours(0,0,0,0);
+  let html = wd.map((d,i) =>
+    '<div class="wk-hdr' + (i===0?' wk-sun':i===6?' wk-sat':'') + '">' + d + '</div>'
+  ).join('');
+
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(ws); d.setDate(ws.getDate() + i);
+    const ds = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+    const isToday = d.getTime() === today.getTime();
+    const isSel   = weekSel === ds;
+    const dow     = d.getDay();
+    const isSat   = dow === 6;
+    const isSun   = dow === 0;
+    const isHol   = isHoliday(ds);
+
+    const dayEvs = events.filter(e => e.date === ds && !isHolidayCalendar(e.calName));
+    const holEvs = events.filter(e => e.date === ds && isHolidayCalendar(e.calName));
+    const dots = dayEvs.slice(0,3).map(() => '<div class="wk-dot"></div>').join('')
+               + holEvs.slice(0,1).map(() => '<div class="wk-dot wk-dot-hol"></div>').join('');
+
+    const cls = ['wk-day',
+      isToday ? 'wk-today' : '',
+      isSel && !isToday ? 'wk-sel' : '',
+      isSat  ? 'wk-sat' : '',
+      (isSun || isHol) ? 'wk-sun' : ''
+    ].filter(Boolean).join(' ');
+
+    html += '<div class="' + cls + '" onclick="selectWeekDay(\'' + ds + '\')">'
+          + '<div class="wk-num">' + d.getDate() + '</div>'
+          + '<div class="wk-dots">' + dots + '</div>'
+          + '</div>';
+  }
+  grid.innerHTML = html;
+  renderWeekEvents();
+}
+
+function selectWeekDay(ds) {
+  weekSel = weekSel === ds ? null : ds;
+  renderWeekCal();
+}
+
+function changeWeek(dir) {
+  weekOffset += dir;
+  weekSel = null;
+  renderWeekCal();
+}
+
+function renderWeekEvents() {
+  const el = document.getElementById('week-events');
+  if (!el) return;
+  const mo = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const wd = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  let filtered;
+  if (weekSel) {
+    filtered = events.filter(e => e.date === weekSel && !isHolidayCalendar(e.calName));
+  } else {
+    const ws = getWeekStart(weekOffset);
+    const we = new Date(ws); we.setDate(ws.getDate() + 7);
+    filtered = events.filter(e => {
+      if (isHolidayCalendar(e.calName)) return false;
+      const d = new Date(e.date); d.setHours(0,0,0,0);
+      return d >= ws && d < we;
+    });
+  }
+  filtered.sort((a,b) => new Date(a.date) - new Date(b.date));
+  if (!filtered.length) {
+    el.innerHTML = '<div style="text-align:center;padding:12px 0;font-size:12px;color:var(--txt-ter)">No events this week</div>';
+    return;
+  }
+  el.innerHTML = renderGrouped(filtered);
+}
+
+
+updateNdot();
 </script>
 </body>
 </html>
