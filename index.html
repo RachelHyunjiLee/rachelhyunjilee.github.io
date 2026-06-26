@@ -459,7 +459,7 @@ main{
   text-transform:uppercase;padding-bottom:6px;color:var(--txt-ter);
 }
 .wk-hdr.sat{color:#4A6FA5}
-.wk-hdr.sun{color:#722F37}
+.wk-hdr.sun{color:#B54545}
 .wk-day{
   display:flex;flex-direction:column;align-items:center;gap:2px;
   padding:4px 2px;border-radius:8px;cursor:pointer;
@@ -492,10 +492,10 @@ main{
   background:var(--accent-dark);color:#fff;
 }
 .wk-day.is-sat .wk-num{color:#4A6FA5}
-.wk-day.is-sun .wk-num, .wk-day.is-hol .wk-num{color:#722F37}
+.wk-day.is-sun .wk-num, .wk-day.is-hol .wk-num{color:#B54545}
 .wk-dots{display:flex;gap:2px;justify-content:center;min-height:5px}
 .wk-dot{width:4px;height:4px;border-radius:50%;background:var(--accent-dark);flex-shrink:0}
-.wk-dot.hol{background:#722F37}
+.wk-dot.hol{background:#B54545}
 
 /* week event list below weekly cal */
 .week-events{margin-top:2px}
@@ -506,18 +506,18 @@ main{
 
 /* ── CALENDAR TAB — holiday/sat colors ───────── */
 .cal-day.is-sat{color:#4A6FA5}
-.cal-day.is-sun,.cal-day.is-hol{color:#722F37}
+.cal-day.is-sun,.cal-day.is-hol{color:#B54545}
 .cal-wday.sat-hdr{color:#4A6FA5}
-.cal-wday.sun-hdr{color:#722F37}
+.cal-wday.sun-hdr{color:#B54545}
 .cal-day.today{background:var(--accent-dark);color:#fff !important}
 
 .wk-sat .wk-num { color: #4A6FA5 }
-.wk-sun .wk-num { color: #722F37 }
+.wk-sun .wk-num { color: #B54545 }
 .cal-day.cal-sat { color: #4A6FA5 }
-.cal-day.cal-sun { color: #722F37 }
+.cal-day.cal-sun { color: #B54545 }
 .cal-day.today   { color: #fff !important }
 .cal-wday.cal-sat-hdr { color: #4A6FA5 }
-.cal-wday.cal-sun-hdr { color: #722F37 }
+.cal-wday.cal-sun-hdr { color: #B54545 }
 </style>
 </head>
 <body>
@@ -1002,7 +1002,9 @@ function ddayCls(n){ return n===0?'d0': (n<=3&&n>0)?'d3':''; }
 /* STATS */
 function updateStats(){
   const now=new Date();
+  // Exclude holiday calendars from counts — they're not todos
   const me=events.filter(e=>{
+    if (isHolidayCalendar(e.calName)) return false;
     const d=new Date(e.date);
     return d.getMonth()===now.getMonth()&&d.getFullYear()===now.getFullYear();
   });
@@ -1010,7 +1012,7 @@ function updateStats(){
   const ts=now.toISOString().split('T')[0];
   document.getElementById('stat-total').textContent=total;
   document.getElementById('stat-done').textContent=done;
-  document.getElementById('stat-today').textContent=events.filter(e=>e.date===ts&&!e.done).length;
+  document.getElementById('stat-today').textContent=events.filter(e=>!isHolidayCalendar(e.calName)&&e.date===ts&&!e.done).length;
   const pct=total>0?Math.round(done/total*100):0;
   document.getElementById('prog-pct').textContent=pct+'%';
   document.getElementById('prog-fill').style.width=pct+'%';
