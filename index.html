@@ -436,6 +436,63 @@ main{
 @media(prefers-reduced-motion:reduce){.ev-card{animation:none}}
 ::-webkit-scrollbar{width:3px}
 ::-webkit-scrollbar-thumb{background:var(--border-2);border-radius:2px}
+
+/* ── WEEKLY MINI-CAL (home) ───────────────────── */
+.week-cal{
+  background:var(--surface);border:1px solid var(--border);
+  border-radius:var(--r-lg);padding:14px 12px;margin-bottom:20px;
+}
+.week-cal-nav{
+  display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;
+}
+.week-cal-ttl{font-size:12px;font-weight:700;letter-spacing:-0.02em;color:var(--txt-pri)}
+.week-cal-btn{
+  width:24px;height:24px;border-radius:6px;
+  border:1px solid var(--border);background:var(--surface-2);
+  color:var(--txt-sec);display:flex;align-items:center;justify-content:center;
+}
+.week-cal-btn svg{width:11px;height:11px;stroke-width:2.5}
+.week-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px}
+.wk-hdr{
+  text-align:center;font-size:9px;font-weight:700;letter-spacing:.05em;
+  text-transform:uppercase;padding-bottom:6px;color:var(--txt-ter);
+}
+.wk-hdr.sat{color:#4A6FA5}
+.wk-hdr.sun{color:#722F37}
+.wk-day{
+  display:flex;flex-direction:column;align-items:center;gap:2px;
+  padding:4px 2px;border-radius:8px;cursor:pointer;
+  transition:background .1s;
+}
+.wk-day:hover{background:var(--surface-2)}
+.wk-day.today .wk-num{
+  background:var(--accent-dark);color:#fff;border-radius:50%;
+  width:22px;height:22px;display:flex;align-items:center;justify-content:center;
+}
+.wk-day.sel:not(.today) .wk-num{
+  background:var(--accent-soft);color:var(--accent-dark);border-radius:50%;
+  width:22px;height:22px;display:flex;align-items:center;justify-content:center;
+}
+.wk-num{font-size:12px;font-weight:500;color:var(--txt-pri);line-height:1;padding:2px 0}
+.wk-day.is-sat .wk-num{color:#4A6FA5}
+.wk-day.is-sun .wk-num, .wk-day.is-hol .wk-num{color:#722F37}
+.wk-dots{display:flex;gap:2px;justify-content:center;min-height:5px}
+.wk-dot{width:4px;height:4px;border-radius:50%;background:var(--accent-dark);flex-shrink:0}
+.wk-dot.hol{background:#722F37}
+
+/* week event list below weekly cal */
+.week-events{margin-top:2px}
+.week-ev-hdr{
+  font-size:10px;font-weight:700;letter-spacing:.06em;
+  color:var(--txt-ter);padding:8px 2px 4px;text-transform:uppercase;
+}
+
+/* ── CALENDAR TAB — holiday/sat colors ───────── */
+.cal-day.is-sat{color:#4A6FA5}
+.cal-day.is-sun,.cal-day.is-hol{color:#722F37}
+.cal-wday.sat-hdr{color:#4A6FA5}
+.cal-wday.sun-hdr{color:#722F37}
+.cal-day.today{background:var(--accent-dark);color:#fff !important}
 </style>
 </head>
 <body>
@@ -852,6 +909,7 @@ window.addEventListener('load', () => {
   handleOAuthRedirect();
   scheduleAllNotifs();
   rebuildPills();
+  renderWeekCal();
   document.getElementById('f-date').value = now.toISOString().split('T')[0];
   document.getElementById('redirect-uri-txt').textContent = location.href.split('#')[0].split('?')[0].replace(/\/$/, '');
   window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); pwaPrompt = e; });
@@ -922,7 +980,7 @@ function updateStats(){
 
 /* PILLS */
 function rebuildPills(){
-  const names=[...new Set(events.map(e=>e.calName||'').filter(Boolean))].sort();
+  const names=[...new Set(events.filter(e=>!isHolidayCalendar(e.calName)).map(e=>e.calName||'').filter(Boolean))].sort();
   document.getElementById('cal-pills').innerHTML=
     '<button class="pill '+(selCal===''?'on':'')+'" onclick="filterCal(\'\')">All</button>'
     +names.map(n=>'<button class="pill '+(selCal===n?'on':'')+'" onclick="filterCal(\''+n+'\')">'+n+'</button>').join('');
@@ -932,7 +990,7 @@ function filterCal(n){ selCal=n; rebuildPills(); renderEvents(); }
 /* RENDER HOME */
 function renderEvents(){
   const now=new Date(); now.setHours(0,0,0,0);
-  const base=selCal?events.filter(e=>(e.calName||'')===selCal):events;
+  const base=selCal?events.filter(e=>(e.calName||'')===selCal):events.filter(e=>!isHolidayCalendar(e.calName));
 
   const upcoming=base
     .filter(e=>{ const d=new Date(e.date); d.setHours(0,0,0,0); return d>=now&&!e.done; })
@@ -1224,7 +1282,7 @@ async function fetchGCal(token){
         }
       });
     }
-    saveEvents(); rebuildPills(); updateStats(); renderEvents(); renderCalendar();
+    saveEvents(); rebuildPills(); updateStats(); renderEvents(); renderCalendar(); renderWeekCal();
     showToast('Imported '+added+' events from Google Calendar');
     if(added>0) scheduleAllNotifs();
     localStorage.setItem('hyun_last_sync',new Date().toISOString());
@@ -1237,9 +1295,7 @@ function gcalErr(){
   showToast('Connection expired — please reconnect');
 }
 function updateGcalUI(){
-  const b=document.getElementById('gcal-banner');
   if(gcalConn){
-    b.innerHTML='<div class="gcal-ico">&#128197;</div><div class="gcal-text"><h3>Google Calendar</h3><div class="conn-tag"><span class="conn-dot"></span>Connected</div></div><div class="gcal-arr"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" width="15" height="15"><path d="M9 18l6-6-6-6"/></svg></div>';
     document.getElementById('gcal-status-txt').textContent='Connected';
     document.getElementById('gcal-btn').textContent='Reconnect';
   }
@@ -1285,6 +1341,89 @@ function showToast(msg){
 }
 
 updateNdot();
+
+/* WEEKLY MINI-CAL */
+let weekOffset=0; // 0=current week
+let weekSel=null;
+
+function getWeekStart(offset){
+  const now=new Date();
+  const day=now.getDay(); // 0=Sun
+  const monday=new Date(now);
+  monday.setDate(now.getDate()-day+(offset*7));
+  monday.setHours(0,0,0,0);
+  return monday;
+}
+
+function renderWeekCal(){
+  const mo=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const wd=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const ws=getWeekStart(weekOffset);
+  const we=new Date(ws); we.setDate(ws.getDate()+6);
+  const ttl=mo[ws.getMonth()]+' '+ws.getDate()+' – '+
+    (ws.getMonth()!==we.getMonth()?mo[we.getMonth()]+' ':'')+we.getDate()+', '+we.getFullYear();
+  document.getElementById('week-ttl').textContent=ttl;
+
+  const today=new Date(); today.setHours(0,0,0,0);
+  const grid=document.getElementById('week-grid');
+  let html=wd.map((d,i)=>'<div class="wk-hdr '+(i===0?'sun':i===6?'sat':'')+'">'+d+'</div>').join('');
+
+  for(let i=0;i<7;i++){
+    const d=new Date(ws); d.setDate(ws.getDate()+i);
+    const ds=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+    const isToday=d.getTime()===today.getTime();
+    const isSel=weekSel===ds;
+    const dow=d.getDay();
+    const isSat=dow===6, isSun=dow===0, isHol=isHoliday(ds);
+    const dayEvs=events.filter(e=>e.date===ds&&!isHolidayCalendar(e.calName));
+    const holEvs=events.filter(e=>e.date===ds&&isHolidayCalendar(e.calName));
+    const dots=dayEvs.slice(0,3).map(()=>'<div class="wk-dot"></div>').join('')
+               +holEvs.slice(0,1).map(()=>'<div class="wk-dot hol"></div>').join('');
+    const cls=['wk-day',isToday?'today':'',isSel&&!isToday?'sel':'',isSat?'is-sat':'',(isSun||isHol)?'is-hol':''].filter(Boolean).join(' ');
+    html+='<div class="'+cls+'" onclick="selectWeekDay(''+ds+'')">'
+         +'<div class="wk-num">'+d.getDate()+'</div>'
+         +'<div class="wk-dots">'+dots+'</div>'
+         +'</div>';
+  }
+  grid.innerHTML=html;
+  renderWeekEvents();
+}
+
+function selectWeekDay(ds){
+  weekSel = weekSel===ds ? null : ds;
+  renderWeekCal();
+}
+
+function changeWeek(dir){
+  weekOffset+=dir;
+  weekSel=null;
+  renderWeekCal();
+}
+
+function renderWeekEvents(){
+  const el=document.getElementById('week-events');
+  const mo=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const wd=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  let filtered;
+  if(weekSel){
+    filtered=events.filter(e=>e.date===weekSel&&!isHolidayCalendar(e.calName));
+  } else {
+    const ws=getWeekStart(weekOffset);
+    const we=new Date(ws); we.setDate(ws.getDate()+7);
+    filtered=events.filter(e=>{
+      if(isHolidayCalendar(e.calName)) return false;
+      const d=new Date(e.date); d.setHours(0,0,0,0);
+      return d>=ws&&d<we;
+    });
+  }
+  filtered.sort((a,b)=>new Date(a.date)-new Date(b.date));
+  if(filtered.length===0){
+    el.innerHTML='<div style="text-align:center;padding:12px;font-size:12px;color:var(--txt-ter)">No events this week</div>';
+    return;
+  }
+  el.innerHTML=renderGrouped(filtered);
+}
+
 </script>
 </body>
 </html>
