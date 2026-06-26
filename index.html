@@ -910,9 +910,15 @@ main{
 
 <script>
 /* SERVICE WORKER */
-if('serviceWorker' in navigator){
-  const sw="const C='hyun-v4';self.addEventListener('install',e=>{e.waitUntil(caches.open(C).then(c=>c.addAll(['/'])));self.skipWaiting()});self.addEventListener('activate',e=>e.waitUntil(clients.claim()));self.addEventListener('fetch',e=>{if(e.request.method!=='GET')return;e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request)))});";
-  navigator.serviceWorker.register(URL.createObjectURL(new Blob([sw],{type:'text/javascript'}))).catch(()=>{});
+/* SERVICE WORKER — disabled (was causing stale-cache issues) */
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.getRegistrations().then(regs => {
+    regs.forEach(r => r.unregister());
+  });
+  // Also clear any caches the old SW created
+  if (window.caches) {
+    caches.keys().then(keys => keys.forEach(k => caches.delete(k)));
+  }
 }
 
 /* STATE */
@@ -930,6 +936,15 @@ const timers = {};
 
 /* INIT */
 window.addEventListener('load', () => {
+  // Auto-invalidate token if scope was upgraded since last login
+  const savedScope = localStorage.getItem('hyun_gcal_scope');
+  if (gcalConn && savedScope !== REQUIRED_SCOPE) {
+    localStorage.removeItem('hyun_gcal_token');
+    localStorage.removeItem('hyun_gcal_conn');
+    gcalConn = false;
+    setTimeout(()=>showToast('권한이 업데이트됐어요. Settings에서 재연동해주세요.'), 800);
+  }
+
   const now = new Date();
   calY = now.getFullYear(); calM = now.getMonth();
   applyDark(darkMode);
@@ -945,6 +960,15 @@ window.addEventListener('load', () => {
   scheduleAllNotifs();
   rebuildPills();
   renderWeekCal();
+
+  // Force sync immediately on load if already connected (esp. for first-time mobile load)
+  if (gcalConn) {
+    const token = localStorage.getItem('hyun_gcal_token');
+    if (token) {
+      setTimeout(() => fetchGCal(token), 500);
+    }
+  }
+
   document.getElementById('f-date').value = now.toISOString().split('T')[0];
   document.getElementById('redirect-uri-txt').textContent = location.href.split('#')[0].split('?')[0].replace(/\/$/, '');
   window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); pwaPrompt = e; });
@@ -1415,8 +1439,10 @@ function saveClientId(){
   closeModal('gcal-modal');
   doOAuth(id);
 }
+const REQUIRED_SCOPE = 'https://www.googleapis.com/auth/calendar.events';
+
 function doOAuth(cid){
-  const scope=encodeURIComponent('https://www.googleapis.com/auth/calendar.events');
+  const scope=encodeURIComponent(REQUIRED_SCOPE);
   const redirect=encodeURIComponent(location.href.split('#')[0].split('?')[0].replace(/\/$/, ''));
   window.location.href='https://accounts.google.com/o/oauth2/v2/auth?client_id='+cid+'&redirect_uri='+redirect+'&response_type=token&scope='+scope+'&prompt=consent';
 }
@@ -1428,6 +1454,7 @@ function handleOAuthRedirect(){
   if(!token) return;
   localStorage.setItem('hyun_gcal_token',token);
   localStorage.setItem('hyun_gcal_conn','true');
+  localStorage.setItem('hyun_gcal_scope', REQUIRED_SCOPE);
   gcalConn=true;
   history.replaceState(null,'',location.pathname);
   showToast('Google Calendar connected');
@@ -1499,9 +1526,10 @@ async function fetchGCal(token){
         pageToken=data.nextPageToken||null;
       } while(pageToken && pages<10);
     }
-    saveEvents(); rebuildPills(); updateStats(); renderEvents(); renderCalendar(); renderWeekCal();
-    showToast('Synced — '+added+' new, '+updated+' updated');
-    if(added>0) scheduleAllNotifs();
+    saveEvents(); rebuildPills(); updateStats(); renderEvents(); renderCalendar(); renderWeekCal(); updateGcalUI();
+    const totalLocal = events.filter(e=>e.source==='gcal').length;
+    showToast('Synced — '+added+' new, '+updated+' updated ('+totalLocal+' total)');
+    if(added>0||updated>0) scheduleAllNotifs();
     localStorage.setItem('hyun_last_sync',new Date().toISOString());
   } catch(err){
     console.error('Sync error:',err);
@@ -1516,9 +1544,16 @@ function gcalErr(){
   showToast('Connection expired — please reconnect');
 }
 function updateGcalUI(){
+  const st  = document.getElementById('gcal-status-txt');
+  const btn = document.getElementById('gcal-btn');
+  const gcalCount = events.filter(e=>e.source==='gcal'&&!isHolidayCalendar(e.calName)).length;
+  const totalCount = events.filter(e=>!isHolidayCalendar(e.calName)).length;
   if(gcalConn){
-    document.getElementById('gcal-status-txt').textContent='Connected';
-    document.getElementById('gcal-btn').textContent='Reconnect';
+    if(st) st.textContent='Connected · '+totalCount+' events loaded ('+gcalCount+' from Google)';
+    if(btn) btn.textContent='Reconnect';
+  } else {
+    if(st) st.textContent='Not connected · '+totalCount+' events loaded';
+    if(btn) btn.textContent='Connect';
   }
 }
 function manualSync(){
