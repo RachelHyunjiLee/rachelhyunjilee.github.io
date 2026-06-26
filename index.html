@@ -765,6 +765,13 @@ main{
     </div>
     <div class="s-row">
       <div class="s-row-l">
+        <div class="s-row-ttl">Restore from backup</div>
+        <div class="s-row-sub">Bring back events from before last Full resync</div>
+      </div>
+      <button class="s-act" onclick="restoreBackup()">Restore</button>
+    </div>
+    <div class="s-row">
+      <div class="s-row-l">
         <div class="s-row-ttl">Reset data</div>
         <div class="s-row-sub">Delete all events and settings</div>
       </div>
@@ -1439,7 +1446,7 @@ function saveClientId(){
   closeModal('gcal-modal');
   doOAuth(id);
 }
-const REQUIRED_SCOPE = 'https://www.googleapis.com/auth/calendar.events';
+const REQUIRED_SCOPE = 'https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/calendar.events';
 
 function doOAuth(cid){
   const scope=encodeURIComponent(REQUIRED_SCOPE);
@@ -1469,10 +1476,19 @@ async function fetchGCal(token){
     const clRes=await fetch('https://www.googleapis.com/calendar/v3/users/me/calendarList',
       {headers:{Authorization:'Bearer '+token}});
     if(clRes.status===401){ gcalErr(); return; }
+    if(clRes.status===403){
+      const errText = await clRes.text();
+      console.error('calendarList 403:',errText);
+      showToast('Permission denied — reconnect with full access');
+      return;
+    }
     let calNames={};
     if(clRes.ok){
       const clData=await clRes.json();
       (clData.items||[]).forEach(c=>{ calNames[c.id]=c.summary; });
+      console.log('Calendar list found:', Object.keys(calNames).length, 'calendars:', Object.values(calNames));
+    } else {
+      console.error('calendarList failed:', clRes.status);
     }
     const ids=Object.keys(calNames).length>0?Object.keys(calNames):['primary'];
 
@@ -1483,25 +1499,31 @@ async function fetchGCal(token){
 
     // 2) fetch events from each calendar with pagination
     let added=0, updated=0, totalFetched=0;
+    let perCalStats = {};
     for(const calId of ids){
       const calName=calNames[calId]||'Other';
       let pageToken=null, pages=0;
+      let calFetched=0;
       do {
         pages++;
         const url='https://www.googleapis.com/calendar/v3/calendars/'+encodeURIComponent(calId)+
           '/events?timeMin='+past+'&timeMax='+later+
-          '&singleEvents=true&orderBy=startTime&maxResults=250'+
+          '&singleEvents=true&orderBy=startTime&maxResults=2500'+
           (pageToken?'&pageToken='+encodeURIComponent(pageToken):'');
         const res=await fetch(url,{headers:{Authorization:'Bearer '+token}});
         if(res.status===401){ gcalErr(); return; }
-        if(!res.ok){ console.warn('Skipping calendar',calName,res.status); break; }
+        if(!res.ok){
+          const errBody = await res.text();
+          console.warn('Skipping calendar',calName,res.status,errBody);
+          break;
+        }
         const data=await res.json();
         (data.items||[]).forEach(item=>{
           if(!item.summary) return;
           const ds=item.start&&item.start.date?item.start.date
                  :item.start&&item.start.dateTime?item.start.dateTime.split('T')[0]:null;
           if(!ds) return;
-          totalFetched++;
+          totalFetched++; calFetched++;
           const existing=events.find(e=>e.gcalId===item.id);
           const remoteDone = !!(item.extendedProperties && item.extendedProperties.private && item.extendedProperties.private.hyun_done === '1');
           if(!existing){
@@ -1513,7 +1535,6 @@ async function fetchGCal(token){
             });
             added++;
           } else {
-            // update mutable fields; trust remote done state (so cross-device sync works)
             existing.title=item.summary;
             existing.date=ds;
             existing.calName=calName;
@@ -1524,17 +1545,18 @@ async function fetchGCal(token){
           }
         });
         pageToken=data.nextPageToken||null;
-      } while(pageToken && pages<10);
+      } while(pageToken && pages<20);
+      perCalStats[calName] = calFetched;
     }
+    console.log('Per-calendar fetched:', perCalStats);
     saveEvents(); rebuildPills(); updateStats(); renderEvents(); renderCalendar(); renderWeekCal(); updateGcalUI();
     const totalLocal = events.filter(e=>e.source==='gcal').length;
-    showToast('Synced — '+added+' new, '+updated+' updated ('+totalLocal+' total)');
+    showToast('Synced '+ids.length+' cals · '+added+' new, '+updated+' updated ('+totalLocal+' total)');
     if(added>0||updated>0) scheduleAllNotifs();
     localStorage.setItem('hyun_last_sync',new Date().toISOString());
   } catch(err){
     console.error('Sync error:',err);
-    // Do not nuke the token on transient errors (network, etc)
-    showToast('Sync failed — will retry');
+    showToast('Sync failed: '+(err.message||'unknown'));
   }
 }
 function gcalErr(){
@@ -1565,12 +1587,25 @@ function fullResync(){
   const t=localStorage.getItem('hyun_gcal_token');
   if(!t){ showToast('Please connect Google Calendar first'); return; }
   if(!confirm('Remove all imported Google Calendar events and refetch from scratch? (Your manually-added events will be kept.)')) return;
+  // Backup before destruction in case sync fails
+  localStorage.setItem('hyun_events_backup', JSON.stringify(events));
+  localStorage.setItem('hyun_events_backup_time', new Date().toISOString());
   // Drop GCal-sourced events
   events = events.filter(e => e.source !== 'gcal');
   saveEvents();
   rebuildPills(); updateStats(); renderEvents(); renderCalendar(); renderWeekCal();
   showToast('Full resync starting...');
   fetchGCal(t);
+}
+function restoreBackup(){
+  const backup = localStorage.getItem('hyun_events_backup');
+  if(!backup){ showToast('No backup found'); return; }
+  const time = localStorage.getItem('hyun_events_backup_time') || 'unknown';
+  if(!confirm('Restore '+JSON.parse(backup).length+' events from backup ('+time+')?')) return;
+  events = JSON.parse(backup);
+  saveEvents();
+  rebuildPills(); updateStats(); renderEvents(); renderCalendar(); renderWeekCal(); updateGcalUI();
+  showToast('Backup restored');
 }
 setInterval(()=>{
   if(!settings.autoSync||!gcalConn) return;
