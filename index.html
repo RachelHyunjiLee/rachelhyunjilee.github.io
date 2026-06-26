@@ -1016,8 +1016,15 @@ function updateStats(){
 }
 
 /* PILLS */
+// Map raw calendar names (e.g. email address of primary cal) to display labels.
+function displayCalName(raw){
+  if (!raw) return '';
+  // Gmail-address primary calendars → "Personal"
+  if (/^[\w.+-]+@[\w.-]+\.[a-zA-Z]{2,}$/.test(raw)) return 'Personal';
+  return raw;
+}
 // User's preferred category order. Names not in the list go to the end (alphabetical).
-const PILL_ORDER = ['Samsung','Study','Tasks','💗','Work','Hangout','메일주소','생일','Job Finding'];
+const PILL_ORDER = ['Samsung','Study','Personal','💗','Work','Tasks','Hangout','Job Finding','생일'];
 function pillSort(a,b){
   const ia = PILL_ORDER.indexOf(a);
   const ib = PILL_ORDER.indexOf(b);
@@ -1027,7 +1034,12 @@ function pillSort(a,b){
   return a.localeCompare(b);
 }
 function rebuildPills(){
-  const names=[...new Set(events.filter(e=>!isHolidayCalendar(e.calName)).map(e=>e.calName||'').filter(Boolean))].sort(pillSort);
+  const names=[...new Set(
+    events
+      .filter(e=>!isHolidayCalendar(e.calName))
+      .map(e=>displayCalName(e.calName||''))
+      .filter(Boolean)
+  )].sort(pillSort);
   document.getElementById('cal-pills').innerHTML=
     '<button class="pill '+(selCal===''?'on':'')+'" onclick="filterCal(\'\')">All</button>'
     +names.map(n=>'<button class="pill '+(selCal===n?'on':'')+'" onclick="filterCal(\''+n+'\')">'+n+'</button>').join('');
@@ -1037,7 +1049,7 @@ function filterCal(n){ selCal=n; rebuildPills(); renderEvents(); }
 /* RENDER HOME */
 function renderEvents(){
   const now=new Date(); now.setHours(0,0,0,0);
-  const base=selCal?events.filter(e=>(e.calName||'')===selCal):events.filter(e=>!isHolidayCalendar(e.calName));
+  const base=selCal?events.filter(e=>displayCalName(e.calName||'')===selCal):events.filter(e=>!isHolidayCalendar(e.calName));
 
   const upcoming=base
     .filter(e=>{ const d=new Date(e.date); d.setHours(0,0,0,0); return d>=now&&!e.done; })
@@ -1092,7 +1104,7 @@ function evHTML(e){
   const dd=dday(e.date);
   let cls=dd===0?'is-today':(dd>0&&dd<=3)?'is-soon':'';
   if(e.done) cls+=' is-done';
-  const calTag=e.calName?'<span class="ev-cal">'+e.calName+'</span>':'';
+  const calTag=e.calName?'<span class="ev-cal">'+displayCalName(e.calName)+'</span>':'';
   const timeTag=e.time?'<span class="ev-time">'+e.time+'</span>':'';
   const memoTag=e.memo?'<span class="ev-time" style="color:var(--txt-ter)">· '+e.memo+'</span>':'';
   return '<div class="ev-card '+cls+'" onclick="toggleDone(\''+e.id+'\')"><div class="ev-body"><div class="ev-title">'+e.title+'</div><div class="ev-meta">'+calTag+timeTag+memoTag+'</div></div><div class="ev-dday '+ddayCls(dd)+'">'+ddayLbl(dd)+'</div><button class="chk-btn '+(e.done?'on':'')+'" onclick="toggleDone(\''+e.id+'\');event.stopPropagation()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="20 6 9 17 4 12"/></svg></button></div>';
