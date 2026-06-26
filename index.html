@@ -853,7 +853,7 @@ window.addEventListener('load', () => {
   scheduleAllNotifs();
   rebuildPills();
   document.getElementById('f-date').value = now.toISOString().split('T')[0];
-  document.getElementById('redirect-uri-txt').textContent = location.href.split('#')[0].split('?')[0];
+  document.getElementById('redirect-uri-txt').textContent = location.href.split('#')[0].split('?')[0].replace(/\/$/, '');
   window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); pwaPrompt = e; });
 });
 
@@ -1175,7 +1175,7 @@ function saveClientId(){
 }
 function doOAuth(cid){
   const scope=encodeURIComponent('https://www.googleapis.com/auth/calendar.readonly');
-  const redirect=encodeURIComponent(location.href.split('#')[0].split('?')[0]);
+  const redirect=encodeURIComponent(location.href.split('#')[0].split('?')[0].replace(/\/$/, ''));
   window.location.href='https://accounts.google.com/o/oauth2/v2/auth?client_id='+cid+'&redirect_uri='+redirect+'&response_type=token&scope='+scope+'&prompt=consent';
 }
 function handleOAuthRedirect(){
